@@ -31,26 +31,40 @@ function initParallax() {
   ).map(el => ({
     el,
     speed: parseFloat(el.dataset.parallaxSpeed) || 0.1,
-    // cache parent rect once; update on resize
-    parentRect: el.parentElement.getBoundingClientRect(),
+    // Absolute document top/height — valid regardless of scroll position at init time
+    absTop: 0,
+    absHeight: 0,
   }));
 
   if (!layers.length) return;
 
+  // Measure positions in absolute document coordinates (not viewport-relative).
+  // Must be called after layout; safe to call again on resize.
+  function measureLayers() {
+    const currentScrollY = window.scrollY;
+    layers.forEach(layer => {
+      const rect = layer.el.parentElement.getBoundingClientRect();
+      // rect.top is viewport-relative → add scrollY to get document-absolute
+      layer.absTop   = rect.top  + currentScrollY;
+      layer.absHeight = rect.height;
+    });
+  }
+
   let rafId = null;
   let scrollY = window.scrollY;
-  let needsUpdate = true;
 
   function update() {
     rafId = null;
 
-    layers.forEach(({ el, speed, parentRect }) => {
-      const viewH = window.innerHeight;
-      // Distance from viewport centre to element centre
-      const elCentreY =
-        parentRect.top + parentRect.height / 2 - scrollY;
-      const distFromCentre = viewH / 2 - elCentreY;
-      const offset = distFromCentre * speed;
+    const viewH = window.innerHeight;
+
+    layers.forEach(({ el, speed, absTop, absHeight }) => {
+      // Centre of the parent element in document space
+      const elCentreDoc = absTop + absHeight / 2;
+      // Centre of the current viewport in document space
+      const viewCentreDoc = scrollY + viewH / 2;
+      // Positive when element is below viewport centre → shifts image up (classic parallax)
+      const offset = (viewCentreDoc - elCentreDoc) * speed;
 
       el.style.transform = `translate3d(0, ${offset.toFixed(2)}px, 0)`;
     });
@@ -64,17 +78,16 @@ function initParallax() {
   }
 
   function onResize() {
-    // Recalculate parent rects after resize
-    layers.forEach(layer => {
-      layer.parentRect = layer.el.parentElement.getBoundingClientRect();
-    });
+    measureLayers(); // recalculate absolute positions after layout change
     onScroll();
   }
 
   window.addEventListener('scroll', onScroll, { passive: true });
   window.addEventListener('resize', onResize, { passive: true });
 
-  // Initial paint
+  // Measure once fonts/images have had a chance to lay out,
+  // then paint the initial frame.
+  measureLayers();
   update();
 }
 
